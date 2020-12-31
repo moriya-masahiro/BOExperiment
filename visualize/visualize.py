@@ -27,15 +27,14 @@ import yaml
 import torch
 
 # original modules
-from ..utils.const import *
 
 
-def scaling(value, max, min, scale_type = TYPE_SCALE_LINEAR):
-    if scale_type == TYPE_SCALE_LINEAR:
+def scaling(value, max, min, scale_type = "linear"):
+    if scale_type == "linear":
         return (value - min) / (max - min)
-    elif scale_type == TYPE_SCALE_LOG:
+    elif scale_type == "log":
         return (np.log(value) - np.log(min)) / (np.log(max) - np.log(min))
-    elif scale_type == TYPE_SCALE_EXP:
+    elif scale_type == "exp":
         return (np.exp(value) - np.exp(min)) / (np.exp(max) - np.exp(min))
     elif scale_type.startswith("x"):
         try:
@@ -47,12 +46,12 @@ def scaling(value, max, min, scale_type = TYPE_SCALE_LINEAR):
         raise Exception("nanka kaku!")
 
 
-def unscaling(value, max, min, scale_type = TYPE_SCALE_LINEAR):
-    if scale_type == TYPE_SCALE_LINEAR:
+def unscaling(value, max, min, scale_type = "linear"):
+    if scale_type == "linear":
         return value * (max - min) + min
-    elif scale_type == TYPE_SCALE_LOG:
+    elif scale_type == "log":
         return np.exp(value * (np.log(max) - np.log(min)) + np.log(min))
-    elif scale_type == TYPE_SCALE_EXP:
+    elif scale_type == "exp":
         return np.log(value * (np.exp(max) - np.exp(min)) + np.exp(min))
     elif scale_type.startswith("x"):
         try:
@@ -72,8 +71,6 @@ class HP:
         self.num_param_dim = None
 
         is_var = None
-
-        self.index = 0
 
         if params is None and file_path is None:
             raise Exception(f"nanka kaku!")
@@ -109,7 +106,7 @@ class HP:
             if not ("is_variable" in param and (param["is_variable"] == "False").all()):
                 raise Exception(f"nanka kaku!")
 
-            type = ALL_TYPE_VALUE[str(param["type"])] if "type" in param else None
+            type = str(param["type"]) if "type" in param else None
             default_value = (param["default_value"]) if "default_value" in param else None
             is_list = isinstance(default_value, list)
 
@@ -118,12 +115,12 @@ class HP:
         elif isinstance(param, str):
             try:
                 # first, if value can be casted to int, treat as int
-                setattr(self, name, Constant(name, int(param), type=TYPE_VALUE_INT, parent=self))
+                setattr(self, name, Constant(name, int(param), type="int", parent=self))
 
             except:
                 try:
                     # then, if value can be casted to float, treat as float
-                    setattr(self, name, Constant(name, float(param), type=TYPE_VALUE_FLOAT, parent=self))
+                    setattr(self, name, Constant(name, float(param), type="float", parent=self))
                 except:
                     # then, if value is "True" or "False" , treat as bool
                     if param in ["True", "False"]:
@@ -132,13 +129,13 @@ class HP:
                                 Constant(
                                     name,
                                     bool(param),
-                                    type=TYPE_VALUE_BOOL,
+                                    type="bool",
                                     parent=self
                                 )
                         )
                     else:
                         # then, treat as str
-                        setattr(self, name, Constant(name, param, type=TYPE_VALUE_STR, parent=self))
+                        setattr(self, name, Constant(name, param, type="int", parent=self))
 
         elif isinstance(param, list):
             param_list = []
@@ -148,39 +145,39 @@ class HP:
                     # first, if value can be casted to int, treat as int
                     param_list.append(int(element))
                     if element_type is None:
-                        element_type = TYPE_VALUE_INT
-                    elif element_type !=  TYPE_VALUE_INT:
+                        element_type = "int"
+                    elif (element_type != "int").all():
                         raise Exception(f"nanka kaku!")
                 except:
                     try:
                         # then, if value can be casted to float, treat as float
                         param_list.append(float(param))
                         if element_type is None:
-                            element_type = TYPE_VALUE_FLOAT
-                        elif element_type != TYPE_VALUE_FLOAT:
+                            element_type = "float"
+                        elif (element_type != "float").all():
                             raise Exception(f"nanka kaku!")
                     except:
                         # then, if value is "True" or "False" , treat as bool
 
                         param_list.append(float(param))
                         if element_type is None:
-                            elemnt_type = TYPE_VALUE_FLOAT
-                        elif element_type != TYPE_VALUE_FLOAT:
+                            elemnt_type = "float"
+                        elif (element_type != "float").all():
                             raise Exception(f"nanka kaku!")
 
                         if param == "True" or  param == "False":
                             param_list.append(bool(param))
                             if element_type is None:
-                                element_type = TYPE_VALUE_BOOL
-                            elif element_type != TYPE_VALUE_BOOL:
+                                element_type = "bool"
+                            elif (element_type != "bool").all():
                                 raise Exception(f"nanka kaku!")
 
                         else:
                             # then, treat as str
                             param_list.append(param)
                             if element_type is None:
-                                element_type = TYPE_VALUE_STR
-                            elif element_type != TYPE_VALUE_STR:
+                                element_type = "str"
+                            elif (element_type != "str").all():
                                 raise Exception(f"nanka kaku!")
 
             setattr(self,
@@ -203,8 +200,8 @@ class HP:
             raise Exception(f"nanka kaku!")
 
 
-        type = ALL_TYPE_VALUE[str(param["type"])] if "type" in param else None
-        scale = ALL_TYPE_SCALE[str(param["scale"])] if "scale" in param else None
+        type = str(param["type"]) if "type" in param else None
+        scale = str(param["scale"]) if "scale" in param else None
         candidates = str(param["candidates"]) if "candidates" in param else None
         max_value = str(param["max_value"]) if "max_value" in param else None
         min_value = str(param["min_value"]) if "min_value" in param else None
@@ -221,6 +218,13 @@ class HP:
                 )
 
         self.child_var.append(getattr(self, name))
+
+    """def get_bounds(self):
+        try:
+            max_value, min_value = getattr(self, "bounds")
+            return max_value, min_value
+        except:
+            raise Exception(f"Param:{name (self)} dose not have bounds!")"""
 
     def get(self, level):
         if "." in level:
@@ -318,29 +322,6 @@ class HP:
 
             return output
 
-    def get_name(self):
-        return self.name
-
-    def __len__(self):
-        return len(self.child_hp) + len(self.child_var) + len(self.child_const)
-
-    def __next__(self):
-        if self.index == self.__len__():
-            raise StopIteration
-
-        elif self.index >= len(self.child_hp) + len(self.child_var):
-            ret = self.child_const[self.index - len(self.child_hp) - len(self.child_var)]
-        elif self.index >= len(self.child_hp):
-            ret = self.child_var[self.index - len(self.child_hp)]
-        else:
-            ret = self.child_hp[self.index]
-
-        self.index += 1
-        return ret
-
-    def __iter__(self):
-        return self
-
 
 class Variable:
     """
@@ -389,17 +370,17 @@ class Variable:
         # check if arguments is appropriate and init it.
         self.check_and_init_args()
 
-        self.dim = 1 if self.type in [TYPE_VALUE_CATEGORICAL] else len(self.candidates)
+        self.dim = 1 if self.type in ["categorical"] else len(self.candidates)
 
     def check_and_init_args(self):
         # check args
-        if self.type == TYPE_VALUE_BOOL and self.scale is None and self.candidates is None:
+        if self.type is not "bool" and self.scale is None and self.candidates is None:
             raise Exception("nanka kaku!")
 
-        elif self.type == TYPE_VALUE_CATEGORICAL and  self.candidates is None:
+        elif self.type is "categorical" and  self.candidates is None:
             raise Exception("nanka kaku!")
 
-        elif self.type in [TYPE_VALUE_FLOAT] and (self.max is None or self.min):
+        elif self.type in ["float"] and (self.max is None or self.min):
             raise Exception("nanka kaku!")
 
         # if scale type is not supecified, set linear
@@ -407,17 +388,17 @@ class Variable:
             self.scale = "linear"
 
         # bool
-        if self.type == TYPE_VALUE_BOOL:
+        if self.type is "bool":
             self.max_value = 1
             self.min_value = 0
             self.candidates = [1, 0]
 
-        elif self.type == TYPE_VALUE_CATEGORICAL:
+        elif self.type is "categorical":
             # generate one-hot vector
             self.num_categories = len(self.candidates)
             self.candidates_onehot = [np.eye(1, M=self.num_categories, k=i, dtype=np.int8) for i in range(self.num_categories)]
 
-        elif self.type == TYPE_VALUE_INT:
+        elif self.type is "int":
             if self.candidates is not None:
                 self.max_value = max(self.candidates)
                 self.min_value = min(self.candidates)
@@ -427,7 +408,7 @@ class Variable:
                 else:
                     self.candidates = list(range(self.min_value, self.max_value+1))
 
-        elif self.type == TYPE_VALUE_FLOAT:
+        elif self.type is "float":
             if self.max_value is None or self.min_value is None:
                 raise Exception("nanka kaku!")
 
@@ -439,38 +420,39 @@ class Variable:
     def get_random_tensor(self):
         if self.candidates is not None:
             index = np.random.choice(list(range(len(self.candidates))))
-            if self.type == TYPE_VALUE_BOOL:
+            if self.type == "bool":
                 return torch.tensor(self.candidates[index])
-            elif self.type == TYPE_VALUE_INT:
+            elif self.type == "int":
                 return scaling(torch.tensor(self.candidates[index]), self.max, self.min, self.scale)
-            elif self.type == TYPE_VALUE_CATEGORICAL:
+            elif self.type == "categorical":
                 return torch.tensor(self.candidates_onehot[index])
 
         else:
             while True:
-                value = np.random.rand()
-                if self.scale == TYPE_SCALE_EXP and value == 0:
+                value  = np.random.rand()
+                if self.scale == "exp" and value == 0:
                     continue
                 else:
                     return torch.tensor(value)
 
+
     def get_const_from_tensor(self, tensor_value):
-        if self.type == TYPE_VALUE_CATEGORICAL:
+        if self.type == "categorical":
             for i in range(len(self.candidates)):
                 if tensor_value[..., i] == 1:
-                    return Constant(self.name, i, TYPE_VALUE_CATEGORICAL)
+                    return Constant(self.name, i, "str")
 
-        elif self.type == TYPE_VALUE_BOOL:
-            return Constant(self.name, bool(tensor_value), TYPE_VALUE_BOOL)
+        elif self.type == "bool":
+            return Constant(self.name, bool(tensor_value), "bool")
 
-        elif self.type == TYPE_VALUE_INT:
+        elif self.type == "int":
             return Constant(self.name,
                             int(unscaling(tensor_value, self.max, self.min, self.scale)),
-                            TYPE_VALUE_INT)
-        elif self.type == TYPE_VALUE_FLOAT:
+                            "int")
+        elif self.type == "float":
             return Constant(self.name,
                             unscaling(tensor_value, self.max, self.min, self.scale),
-                            TYPE_VALUE_FLOAT)
+                            "float")
 
         else:
             raise Exception("nanka kaku!")
@@ -492,9 +474,6 @@ class Variable:
 
     def get_dim(self):
         return self.dim
-
-    def __len__(self):
-        return 1
 
 
 class Constant:
@@ -543,15 +522,3 @@ class Constant:
 
     def get_value(self):
         return self.value
-
-    def __str__(self):
-        return str(self.value)
-
-    def __repr__(self):
-        return str(self.value)
-
-    def __len__(self):
-        if self.is_list:
-            return len(self.value)
-        else:
-            return 1
