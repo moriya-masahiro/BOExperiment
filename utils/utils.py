@@ -14,12 +14,16 @@ Todo:
 """
 
 # standard modules
+import sys
+
+sys.path.append('../')
+
 import time
 
 # third party modules
 
 # original modules
-from ..utils.const import *
+from utils.const import *
 
 
 def str2bool(s):
@@ -39,4 +43,3 @@ class Timer:
         interval = time.time() - self.clock[key]
         del self.clock[key]
         return interval
-

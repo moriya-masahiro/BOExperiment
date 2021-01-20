@@ -1,0 +1,56 @@
+hogehoge1: fugafuga1
+hogehoge2: fugafuga2
+hogehoge3: fugafuga3
+
+experiment:
+  experiment_name: hartmann6_test
+  devices:
+    - 0
+    - 1
+    - 2
+    - 3
+  num_initial_iterations: 8
+  num_iterations: 64
+
+train:
+  x0:
+    is_variable: True
+    type: float
+    max_value: 1
+    min_value: 0
+
+  x1:
+    is_variable: True
+    type: float
+    max_value: 1
+    min_value: 0
+
+  x2:
+    is_variable: True
+    type: float
+    max_value: 1
+    min_value: 0
+
+  x3:
+    is_variable: True
+    type: float
+    max_value: 1
+    min_value: 0
+
+  x4:
+    is_variable: True
+    type: float
+    max_value: 1
+    min_value: 0
+
+  x5:
+    is_variable: True
+    type: float
+    max_value: 1
+    min_value: 0
+
+  dummy_1:
+    is_variable: True
+    type: bool
+
+

@@ -3,14 +3,17 @@
 # Press ⌃R to execute it or replace it with your code.
 # Press Double ⇧ to search everywhere for classes, files, tool windows, actions, and settings.
 
-
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press ⌘F8 to toggle the breakpoint.
-
+from hp.hp import HP
+from experiment.experiment import Experiment
+from trainer.sample_trainer import Hartmann6Trainer
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    print_hi('PyCharm')
+    hp = HP(name="hartmann6_test", file_path="params/sample_param_hartmann6.yaml")
+    experiment = Experiment(hp, Hartmann6Trainer)
+
+    experiment.run()
+
+    print(experiment.get_best_result())
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/

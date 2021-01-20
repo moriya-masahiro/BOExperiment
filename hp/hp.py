@@ -14,7 +14,9 @@ Todo:
 """
 
 # standard modules
-import os
+import sys
+sys.path.append('../')
+
 import itertools
 
 from pathlib import Path
@@ -27,10 +29,10 @@ import yaml
 import torch
 
 # original modules
-from ..utils.const import *
+from utils.const import *
 
 
-def scaling(value, max, min, scale_type = TYPE_SCALE_LINEAR):
+def scaling(value, max, min, scale_type=TYPE_SCALE_LINEAR):
     if scale_type == TYPE_SCALE_LINEAR:
         return (value - min) / (max - min)
     elif scale_type == TYPE_SCALE_LOG:
@@ -47,7 +49,7 @@ def scaling(value, max, min, scale_type = TYPE_SCALE_LINEAR):
         raise Exception("nanka kaku!")
 
 
-def unscaling(value, max, min, scale_type = TYPE_SCALE_LINEAR):
+def unscaling(value, max, min, scale_type=TYPE_SCALE_LINEAR):
     if scale_type == TYPE_SCALE_LINEAR:
         return value * (max - min) + min
     elif scale_type == TYPE_SCALE_LOG:
@@ -85,24 +87,33 @@ class HP:
 
         for key, value in params.items():
             if isinstance(value, dict):
-                # check if havinng necessary keys
-                if "is_variable" in  value:
-                    if (value["is_variable"] == "True").all():
+                # check if having necessary keys
+                if "is_variable" in value:
+                    if value["is_variable"] in ["True", "true", True]:
                         self.set_var(key, value)
-                    elif (value["is_variable"] == "False").all():
+                        self.child_var.append(key)
+                    elif value["is_variable"] in ["False", "false", False]:
                         self.set_const(key, value)
+                        self.child_const.append(key)
                     else:
                         raise Exception(f"nanka kaku!")
 
                 else:
                     setattr(self, key, HP(key, params=value))
                     self.child_hp.append(getattr(self, key))
+                    self.child_var += [f"{key}.{var_name}" for var_name in getattr(self, key).child_var]
+                    self.child_const += [f"{key}.{const_name}" for const_name in getattr(self, key).child_const]
 
-            elif isinstance(value, str) or isinstance(value, list):
+            elif isinstance(value, str) or \
+                    isinstance(value, list) or \
+                    isinstance(value, int) or \
+                    isinstance(value, float):
                 self.set_const(key, value)
 
             else:
                 raise Exception(f"nanka kaku!")
+
+        self.num_param_dim = sum([self.get_var(var_name).get_dim() for var_name in self.child_var])
 
     def set_const(self, name, param):
         if isinstance(param, dict):
@@ -115,7 +126,7 @@ class HP:
 
             setattr(self, name, Constant(name, default_value, float(param), type=type, parent=self, is_list=is_list))
 
-        elif isinstance(param, str):
+        elif isinstance(param, str) or isinstance(param, int) or isinstance(param, float):
             try:
                 # first, if value can be casted to int, treat as int
                 setattr(self, name, Constant(name, int(param), type=TYPE_VALUE_INT, parent=self))
@@ -149,7 +160,7 @@ class HP:
                     param_list.append(int(element))
                     if element_type is None:
                         element_type = TYPE_VALUE_INT
-                    elif element_type !=  TYPE_VALUE_INT:
+                    elif element_type != TYPE_VALUE_INT:
                         raise Exception(f"nanka kaku!")
                 except:
                     try:
@@ -164,11 +175,11 @@ class HP:
 
                         param_list.append(float(param))
                         if element_type is None:
-                            elemnt_type = TYPE_VALUE_FLOAT
+                            element_type = TYPE_VALUE_FLOAT
                         elif element_type != TYPE_VALUE_FLOAT:
                             raise Exception(f"nanka kaku!")
 
-                        if param == "True" or  param == "False":
+                        if param == "True" or param == "False":
                             param_list.append(bool(param))
                             if element_type is None:
                                 element_type = TYPE_VALUE_BOOL
@@ -195,19 +206,16 @@ class HP:
         else:
             raise Exception(f"nanka kaku!")
 
-        self.child_const.append(getattr(self, name))
-
     def set_var(self, name, param):
         # check
-        if not ("is_variable" in param and (param["is_variable"] == "True").all()):
+        if not ("is_variable" in param and (param["is_variable"] in ["True", "true", True])):
             raise Exception(f"nanka kaku!")
-
 
         type = ALL_TYPE_VALUE[str(param["type"])] if "type" in param else None
         scale = ALL_TYPE_SCALE[str(param["scale"])] if "scale" in param else None
-        candidates = str(param["candidates"]) if "candidates" in param else None
-        max_value = str(param["max_value"]) if "max_value" in param else None
-        min_value = str(param["min_value"]) if "min_value" in param else None
+        candidates = param["candidates"] if "candidates" in param else None
+        max_value = param["max_value"] if "max_value" in param else None
+        min_value = param["min_value"] if "min_value" in param else None
 
         setattr(self,
                 name,
@@ -220,15 +228,13 @@ class HP:
                          min_value=min_value)
                 )
 
-        self.child_var.append(getattr(self, name))
-
     def get(self, level):
         if "." in level:
             attr_name_first = level.split(".")[0]
             attr_name_else = ".".join(level.split(".")[1:])
             return (getattr(self, attr_name_first)).get(attr_name_else)
         else:
-            getattr(self, level).get_value()
+            return getattr(self, level).get_value()
 
     def is_variable(self):
         if self.is_variable:
@@ -239,7 +245,7 @@ class HP:
             return True
         else:
             # check all child hp
-            for child_hp in self.child_hp_list:
+            for child_hp in self.child_hp:
                 if child_hp.is_variable():
                     self.is_variable = True
                     return True
@@ -250,31 +256,96 @@ class HP:
     def get_const_hp_from_tensor(self, tensor):
         # check tensor dim
         if tensor.size(0) != self.num_param_dim:
-            Exception(f"nanka kaku!")
+            raise Exception(f"nanka kaku!")
 
         header_index = 0
 
         hp_const = deepcopy(self)
 
-        for i, var in enumerate(self.child_var_list):
-            var_dim = var.get_dim()
-            hp_const = var.get_const_from_tensor(tensor[header_index:header_index+var_dim])
+        for i, var_name in enumerate(self.child_var):
+            var_dim = self.get_var(var_name).get_dim()
+            const = hp_const.get_var(var_name).get_const_from_tensor(tensor[header_index:header_index+var_dim])
+            hp_const.var2const(var_name, const)
             header_index += var_dim
+
+        # hp_const.child_const = deepcopy(hp_const.child_var)
+        # hp_const.child_var = []
 
         return hp_const
 
-    def random_init(self, param, with_hp=False):
+    def generate_random_sample(self, param, with_hp=False):
         tensor_list = []
 
-        for i, var in enumerate(self.child_var_list):
-            tensor_list.append(var.get_random_tensor())
+        for i, var_name in enumerate(self.child_var):
+            tensor_list.append(self.get_var(var_name).get_random_tensor())
 
         param_tensor = torch.cat(tensor_list)
 
         if with_hp:
-            param_tensor,  self.get_const_hp_from_tensor(param_tensor)
+            return param_tensor, self.get_const_hp_from_tensor(param_tensor)
         else:
-            param_tensor
+            return param_tensor
+
+    def var2const(self, var_name, const):
+        if var_name not in self.child_var:
+            print(var_name)
+            print(self.child_var)
+            raise Exception(f"nanka kaku!")
+
+        self.child_var.remove(var_name)
+        self.child_const.append(var_name)
+
+        top_attr_name = var_name.split(".")[0]
+        if not hasattr(self, top_attr_name):
+            raise Exception(f"nanka kaku!")
+
+        else:
+            target_attr = getattr(self, top_attr_name)
+            if isinstance(target_attr, Variable):
+                # target_attr = const
+                delattr(self, top_attr_name)
+                setattr(self, top_attr_name, const)
+            elif isinstance(target_attr, HP):
+                return target_attr.var2const(var_name[len(top_attr_name)+1:], const)
+            else:
+                raise Exception(f"nanka kaku!")
+
+    def get_var(self, var_name):
+        if var_name not in self.child_var:
+            print(var_name)
+            print(self.child_var)
+            raise Exception(f"nanka kaku!")
+
+        top_attr_name = var_name.split(".")[0]
+        if not hasattr(self, top_attr_name):
+            raise Exception(f"nanka kaku!")
+
+        else:
+            target_attr = getattr(self, top_attr_name)
+            if isinstance(target_attr, Variable):
+                return target_attr
+            elif isinstance(target_attr, HP):
+                return target_attr.get_var(var_name[len(top_attr_name)+1:])
+            else:
+                raise Exception(f"nanka kaku!")
+
+    def get_const(self, const_name):
+        if const_name not in self.child_const:
+            raise Exception(f"nanka kaku!")
+
+        top_attr_name = const_name.split(".")[0]
+        if not hasattr(self, top_attr_name):
+            raise Exception(f"nanka kaku!")
+
+        else:
+            target_attr = getattr(self, top_attr_name)
+            if isinstance(target_attr, Constant):
+                return target_attr
+            elif isinstance(target_attr, HP):
+                return target_attr.get_var(const_name[len(top_attr_name)+1:])
+            else:
+                print(type(target_attr))
+                raise Exception(f"nanka kaku!")
 
     def discrete_patterns(self):
         header_index = 0
@@ -282,7 +353,7 @@ class HP:
         index_list = []
         output = []
         # list up all discrete param
-        for i, var in enumerate(self.child_var_list):
+        for i, var in enumerate(self.child_var):
 
             if (var.type == "float").all():
                 # Nothing to do.
@@ -298,7 +369,7 @@ class HP:
 
             header_index += var.get_dim()
 
-        num_discrete_paraam = len(candidates_list)
+        num_discrete_param = len(candidates_list)
 
         if len(candidates_list) == 0:
             return {}
@@ -340,6 +411,29 @@ class HP:
 
     def __iter__(self):
         return self
+
+    def get_bounds(self):
+        return torch.stack([torch.zeros(self.num_param_dim), torch.ones(self.num_param_dim)])
+
+    def print_all(self, tab=0):
+        print("\t" * tab + f"{self.name}:")
+
+        tab += 1
+
+        for var_name in self.child_var:
+            if len(var_name.split(".")) == 1:
+                print("\t" * tab + f"{self.get_var(var_name).get_name()} (variable) : {self.get_var(var_name).get_value()}")
+            else:
+                pass
+
+        for const_name in self.child_const:
+            if len(const_name.split(".")) == 1:
+                print("\t" * tab + f"{self.get_const(const_name).get_name()} (const) : {self.get_const(const_name).get_value()}")
+            else:
+                pass
+
+        for hp in self.child_hp:
+            hp.print_all(tab=tab)
 
 
 class Variable:
@@ -389,22 +483,27 @@ class Variable:
         # check if arguments is appropriate and init it.
         self.check_and_init_args()
 
-        self.dim = 1 if self.type in [TYPE_VALUE_CATEGORICAL] else len(self.candidates)
+        self.dim = 1 if self.type not in [TYPE_VALUE_CATEGORICAL] else len(self.candidates)
+
+        if self.candidates is not None:
+            self.default_value = self.candidates[0]
+        else:
+            self.default_value = self.min_value
 
     def check_and_init_args(self):
         # check args
-        if self.type == TYPE_VALUE_BOOL and self.scale is None and self.candidates is None:
+        if self.type in [TYPE_VALUE_INT] and ((self.max_value is None or self.min_value is None) or self.candidates is None):
             raise Exception("nanka kaku!")
 
-        elif self.type == TYPE_VALUE_CATEGORICAL and  self.candidates is None:
+        elif self.type == TYPE_VALUE_CATEGORICAL and self.candidates is None:
             raise Exception("nanka kaku!")
 
-        elif self.type in [TYPE_VALUE_FLOAT] and (self.max is None or self.min):
+        elif self.type in [TYPE_VALUE_FLOAT] and (self.max_value is None or self.min_value is None):
             raise Exception("nanka kaku!")
 
         # if scale type is not supecified, set linear
-        if self.scale is not None:
-            self.scale = "linear"
+        if self.scale is None:
+            self.scale = TYPE_SCALE_LINEAR
 
         # bool
         if self.type == TYPE_VALUE_BOOL:
@@ -416,6 +515,8 @@ class Variable:
             # generate one-hot vector
             self.num_categories = len(self.candidates)
             self.candidates_onehot = [np.eye(1, M=self.num_categories, k=i, dtype=np.int8) for i in range(self.num_categories)]
+            self.max_value = 1
+            self.min_value = 0
 
         elif self.type == TYPE_VALUE_INT:
             if self.candidates is not None:
@@ -440,9 +541,9 @@ class Variable:
         if self.candidates is not None:
             index = np.random.choice(list(range(len(self.candidates))))
             if self.type == TYPE_VALUE_BOOL:
-                return torch.tensor(self.candidates[index])
+                return torch.tensor([self.candidates[index]])
             elif self.type == TYPE_VALUE_INT:
-                return scaling(torch.tensor(self.candidates[index]), self.max, self.min, self.scale)
+                return scaling(torch.tensor([self.candidates[index]]), self.max, self.min, self.scale)
             elif self.type == TYPE_VALUE_CATEGORICAL:
                 return torch.tensor(self.candidates_onehot[index])
 
@@ -452,7 +553,7 @@ class Variable:
                 if self.scale == TYPE_SCALE_EXP and value == 0:
                     continue
                 else:
-                    return torch.tensor(value)
+                    return torch.tensor([value])
 
     def get_const_from_tensor(self, tensor_value):
         if self.type == TYPE_VALUE_CATEGORICAL:
@@ -465,11 +566,11 @@ class Variable:
 
         elif self.type == TYPE_VALUE_INT:
             return Constant(self.name,
-                            int(unscaling(tensor_value, self.max, self.min, self.scale)),
+                            int(unscaling(tensor_value, self.max_value, self.min_value, self.scale)),
                             TYPE_VALUE_INT)
         elif self.type == TYPE_VALUE_FLOAT:
             return Constant(self.name,
-                            unscaling(tensor_value, self.max, self.min, self.scale),
+                            float(unscaling(tensor_value, self.max_value, self.min_value, self.scale)),
                             TYPE_VALUE_FLOAT)
 
         else:
@@ -555,3 +656,12 @@ class Constant:
             return len(self.value)
         else:
             return 1
+
+    def __int__(self):
+        return int(self.value)
+
+    def __float__(self):
+        return float(self.value)
+
+    def __bool__(self):
+        return bool(self.value)

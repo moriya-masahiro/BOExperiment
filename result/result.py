@@ -14,8 +14,13 @@ Todo:
 """
 
 # standard modules
+import sys
+
+sys.path.append('../')
 import os
 import itertools
+
+from threading import Lock
 
 from pathlib import Path
 from copy import deepcopy
@@ -27,27 +32,22 @@ import yaml
 import torch
 
 # original modules
-
-
-# Define const value
-STATUS_PENDING = 0
-STATUS_RUNNING = 1
-STATUS_DONE = 2
-STATUS_FAILED = 3
+from utils.const import *
+from utils.utils import *
 
 
 class Result:
     def __init__(self, hp, experiment_name, parent_name, trial_id):
         self.parent_name = parent_name
-        self.experiment_name =experiment_name
+        self.experiment_name = experiment_name
         self.trial_id = trial_id
 
         self.experiment_name = f"{self.parent_name}_trial_{self.trial_id}"
 
         self.hp = hp
-        self.train_log = TrainLog()
+        self.results = []
 
-        self.lock = lock
+        self.lock = Lock()
 
         self.status = STATUS_PENDING
 
@@ -80,17 +80,17 @@ class Result:
     def dump_to_file(self, path):
         pass
 
+    def set_result(self, value_type, name, value, step, phase):
+        self.results.append(EvalIndex(value_type, name, value, step, phase=phase))
 
-class TrainLog:
-    def __init__(self, hogoe):
-        self.parent_name = parent_name
-        self.trial_id = trial_id
 
-        self.experiment_name = f"{self.parent_name}_trial_{self.trial_id}"
-
-        self.hp = hp
-
-        self.status = STATUS_PENDING
+class EvalIndex:
+    def __init__(self, value_type, name, value, step, phase=PHASE_TRAIN):
+        self.value_type = value_type
+        self.value = value
+        self.name = name
+        self.step = step
+        self.phase = phase
 
     def get_status(self):
         status_dict = {STATUS_PENDING: "pending",
@@ -99,3 +99,13 @@ class TrainLog:
                        STATUS_FAILED: "failed"}
 
         return status_dict[self.status]
+
+    def get_value(self):
+        return self.value
+
+    def check_value(self):
+        max_value = get_max(self.value_type)
+        min_value = get_min(self.value_type)
+
+    def __str__(self):
+        return str(self.value)

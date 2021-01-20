@@ -14,11 +14,15 @@ Todo:
 """
 
 # standard modules
+import sys
+sys.path.append('../')
 import os
 import signal
-from threading import Thread, Lock
+import time
+from threading import Thread, Lock, Event
 
 from queue import Queue
+from copy import deepcopy
 
 # third party modules
 import numpy as np
@@ -29,8 +33,13 @@ from botorch.fit import fit_gpytorch_model
 from botorch.models import SingleTaskGP
 from gpytorch.mlls import ExactMarginalLogLikelihood
 
+from botorch.acquisition import UpperConfidenceBound
+
+from botorch.optim import optimize_acqf
+
 # original modules
-from ..hp.hp import HP
+from hp.hp import HP
+from utils.const import *
 
 
 class Experiment:
@@ -55,8 +64,7 @@ class Experiment:
     val_dataset = None
     val_frequence = None
 
-
-    def __init__(self, hp_file_path, trainer):
+    def __init__(self, hp, TrainerClass):
         """関数の説明タイトル
         Initizer.
 
@@ -85,24 +93,26 @@ class Experiment:
         """
 
         # set basic paramter for experiment
-        self.hp = HP(file_path=hp_file_path)
+        self.hp = hp
         self.experiment_name = self.hp.get("experiment.experiment_name")
         self.num_initial_iteration = self.hp.get("experiment.experiment_name")
-        self.gpus = self.hp.get("experiment.experiment_name")
+        self.gpus = self.hp.get("experiment.devices")
+        print(self.gpus)
         self.num_gpus = len(self.gpus)
 
-        # hyper param in this queues
-        self.q_for_pending_tasks = Queue()
-
-        # procces running on each gpus
-        self.task_running = [None for i in range(self.num_gpus)]
-
+        self.thread_manager = ThreadManager(self.gpus)
 
         # init gaussian process
 
-        self.trainer = trainer
+        self.TrainerClass = TrainerClass
 
-        self.trials = []
+        self.results = []
+        self.train_x = []
+        self.train_y = []
+
+        self.best_y = torch.tensor([-100])
+
+        self.model = None
 
 
     def run(self, print_console=True):
@@ -129,95 +139,92 @@ class Experiment:
             注意事項などを記載
 
         """
+
         # Done initial iters
 
         iter_id = 0
 
-        # generate initial parameters and done each iter
-        initial_params_for_trainer, initial_params_for_gp = self.hp.generate_random_sample(self.num_initial_iterations)
+        # generate initial parameters and done each
+        for i in range(int(self.hp.experiment.num_initial_iterations)):
 
-        for i in range(self.num_initial_iterations):
-            train_x, hp_fix = self.hp.random_init(with_hp=True)
+            # generate hp
+            new_train_x, hp_fix = self.hp.generate_random_sample(1, with_hp=True)
 
-        for i in range(self.num_epoch):
-            # excecut an epoch training
-            self.train_epoch(i + 1)
+            hp_fix.print_all()
 
-            # if epoch is for validation, excecute validation.
-            if (i + 1) % self.val_frequence == 0:
-                self.val(i + 1)
+            # generate trainer and add to
+            trainer = self.TrainerClass(str(self.hp.experiment.experiment_name),
+                                        iter_id,
+                                        hp_fix)
 
+            self.thread_manager.add_task(trainer, new_train_x)
 
-    def put_one_iter(self, param, iter_id, gpu_id):
-        trainer = self.Trainer(param, iter_id, gpu_id)
+            iter_id += 1
 
-        if self.task_running[gpu_id] is not None:
-            raise Exception()
+        # while iter_id < int(self.hp.experiment.num_iterations):
+        #    self.model
+        #    print("hoge")
+        self.thread_manager.run()
 
-        self.task_running[gpu_id] = trainer = self.Trainer(param, iter_id, gpu_id)
+        while(True):
+            print(f"length of results is {len(self.results)}")
+            if self.thread_manager.q_task_finished.qsize() > 0:
+                self.results.append(self.thread_manager.get_finished_task())
+                print(self.results[-1].trainer.result.results[0].get_value())
 
-    def has_task_finished(self):
-        has_all_iter_finished = True
-        has_all_tasks_started = self.q_for_pending_tasks.qsize() == 0
+                new_train_y = torch.tensor([self.results[-1].trainer.result.results[0].get_value()])
+                new_train_x = self.results[-1].train_x
 
-        if has_all_tasks_started:
-            for proc in self.task_running:
-                if proc is None:
-                    pass
+                if new_train_y > self.best_y:
+                    self.best_y = new_train_y
+                    self.best_x = new_train_x
+
+                # add new observation
+                if isinstance(self.train_x, list):
+                    self.train_x = new_train_x.unsqueeze(0)
+                    self.train_y = new_train_y.unsqueeze(0)
+
                 else:
-                    if proc.is_alive():
-                        have_all_iter_finished = False
-                    else:
-                        # get results
+                    self.train_x = torch.cat([self.train_x, new_train_x.unsqueeze(0)])
+                    self.train_y = torch.cat([self.train_y, new_train_y.unsqueeze(0)])
 
-                        self.results.append()
+                print(self.train_x.size())
+                print(self.train_y.size())
 
-            else:
-                return True
+                if iter_id < int(self.hp.experiment.num_iterations):
+                    gp = SingleTaskGP(self.train_x, self.train_y)
+                    mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
+                    fit_gpytorch_model(mll)
+                    UCB = UpperConfidenceBound(gp, beta=0.1)
 
-        else:
-            have_all_iter_finished = False
-            for proc in self.task_running:
-                if proc.is_alive():
-                    pass
-                else:
-                    return False
+                    bounds = self.hp.get_bounds()
+                    candidate, acq_value = optimize_acqf(
+                        UCB, bounds=bounds, q=1, num_restarts=5, raw_samples=20,
+                    )
 
-            return has_all_iter_finished
+                    print(candidate, acq_value)
 
-        if has_all_tasks_started and are_all_gpus_wating:
-            # all iter has finished!
-            return True
+                    new_train_x = candidate[0]
+                    hp_fix = self.hp.get_const_hp_from_tensor(new_train_x)
 
-        elif has_all_tasks_started:
-            return False
+                    trainer = self.TrainerClass(str(self.hp.experiment.experiment_name),
+                                                iter_id,
+                                                hp_fix)
 
-        elif are_all_gpus_working:
-            # all gpus are running so can not a put new iter
-            return False
+                    self.thread_manager.add_task(trainer, new_train_x)
+                    iter_id += 1
 
-        elif are_all_gpus_working:
-            # put a new iter on waiting gpu
-            return False
+                elif self.thread_manager.is_finished():
+                    break
 
-        else:
-            rasie Exception()
-
-        # if true, finished, elif false,  running
-        if self.task_running.count(None) == len(self.task_running.count(None)):
-            pass
-        for gpu_id, proc in enumerate(self.task_running):
-            if not proc.is_alive:
-                proc = None
-                return gpu_id
-
-        else:
-            return None
-
-        return id
+            print("sleep")
+            time.sleep(0.1)
 
     def logging(self, log, type):
         pass
+
+    def get_best_result(self):
+        return self.best_x, self.best_y
 
 
 class ThreadManager:
@@ -233,7 +240,7 @@ class ThreadManager:
 
     # attributes
 
-    def __init__(self, devices, trainer):
+    def __init__(self, devices):
         """関数の説明タイトル
         Initizer.
 
@@ -261,15 +268,62 @@ class ThreadManager:
 
         """
 
-        # set basic paramter for experiment
+        # set basic parameter for experiment
         self.devices = devices
-        self.device_dict = {device: {"task": None, "event": } for device in self.devices}
+        self.device_dict = {device: False for device in self.devices}
         self.q_task_pending = Queue()
         self.q_task_finished = Queue()
+        self.list_task_running = []
 
+        self.manager_thread = self.__launch_manager_thread()
+        self.manager_thread.setDaemon(True)
+
+        self.event = Event()
         self.lock = Lock()
 
-    def add_task(self, task):
+    def run(self):
+        self.manager_thread.start()
+
+    def __launch_manager_thread(self):
+        manager_thread = Thread(target=self.__manager_func)
+
+        return manager_thread
+
+    def __manager_func(self):
+        while True:
+            # set new task to free device
+            for i, task in enumerate(self.list_task_running):
+                if not task.is_alive():
+                    self.q_task_finished.put(task)
+                    self.list_task_running.pop(i)
+                    self.device_dict[task.device] = False
+                    break
+
+            time.sleep(1)
+
+    def __launch_task_thread(self, trainer, new_train_x, device):
+        class TaskThread(Thread):
+            def __init__(self, _trainer, train_x, _device, event, lock):
+                super(TaskThread, self).__init__()
+                self.trainer = _trainer
+                self.device = _device
+                self.trainer.set_device(_device)
+                self.event = event
+                self.lock = lock
+                self.train_x = train_x
+
+            def run(self):
+                self.trainer.run()
+
+            def get_result(self):
+                return self.trainer.get_result()
+
+            def get_status(self):
+                return self.trainer.get_status()
+
+        return TaskThread(trainer, new_train_x, device, self.event, self.lock)
+
+    def add_task(self, _trainer, new_train_x):
         """関数の説明タイトル
         The method to start experiment.
 
@@ -290,94 +344,56 @@ class ThreadManager:
             注意事項などを記載
 
         """
-        self.lock.acquire()
         # Done initial iters
         # check if there are free device
         for key, value in self.device_dict.items():
             # check if value is None
-            if value is None:
-                task.set_device(key)
-                task.setDaemon(key)
-                value = task
+            if not value:
+                task_thread = self.__launch_task_thread(_trainer, new_train_x, key)
+                print(self.device_dict)
+                task_thread.setDaemon(True)
+                self.device_dict[key] = True
+
+                self.list_task_running.append(task_thread)
+                self.list_task_running[-1].start()
+                print(self.device_dict)
                 break
 
         # if all device is busy, task will pending
         else:
-            self.q_task_pending.put(task)
+            self.q_task_pending.put([_trainer, new_train_x])
 
-        self.lock.release()
+    def __len__(self):
+        return self.q_task_finished.qsize()
 
-    def manage_event(self):
-        
+    def get_results(self):
+        results = []
+        while self.q_task_finished.not_empty:
+            result = self.q_task_finished.get().get_result()
+            results.append(result)
 
-    def put_one_iter(self, param, iter_id, gpu_id):
-        trainer = self.Trainer(param, iter_id, gpu_id)
+        return results
 
-        if self.task_running[gpu_id] is not None:
-            raise Exception()
+    def get_result(self):
+        result = self.q_task_pending.get()
 
-        self.task_running[gpu_id] = trainer = self.Trainer(param, iter_id, gpu_id)
+        return result
 
-    def has_task_finished(self):
-        has_all_iter_finished = True
-        has_all_tasks_started = self.q_for_pending_tasks.qsize() == 0
+    def get_finished_task(self):
+        task = self.q_task_finished.get()
+        return task
 
-        if has_all_tasks_started:
-            for proc in self.task_running:
-                if proc is None:
-                    pass
-                else:
-                    if proc.is_alive():
-                        have_all_iter_finished = False
-                    else:
-                        # get results
+    def logging(self, log, __type):
+        pass
 
-                        self.results.append()
-
-            else:
-                return True
-
-        else:
-            have_all_iter_finished = False
-            for proc in self.task_running:
-                if proc.is_alive():
-                    pass
-                else:
-                    return False
-
-            return has_all_iter_finished
-
-        if has_all_tasks_started and are_all_gpus_wating:
-            # all iter has finished!
+    def is_finished(self):
+        if self.q_task_pending.not_empty:
             return True
 
-        elif has_all_tasks_started:
-            return False
+        for key, value in self.device_dict.items():
+            # check if value is None
+            if value:
+                return False
 
-        elif are_all_gpus_working:
-            # all gpus are running so can not a put new iter
-            return False
-
-        elif are_all_gpus_working:
-            # put a new iter on waiting gpu
-            return False
-
-        else:
-            rasie Exception()
-
-        # if true, finished, elif false,  running
-        if self.task_running.count(None) == len(self.task_running.count(None)):
-            pass
-        for gpu_id, proc in enumerate(self.task_running):
-            if not proc.is_alive:
-                proc = None
-                return gpu_id
-
-        else:
-            return None
-
-        return id
-
-    def logging(self, log, type):
-        pass
+        return True
 

@@ -14,13 +14,15 @@ Todo:
 """
 
 # standard modules
+import sys
+sys.path.append('../')
 import os
 import itertools
 
 from pathlib import Path
 from copy import deepcopy
 
-from multiprocessing import Lock
+from threading import Lock
 
 # third party modules
 import numpy as np
@@ -29,8 +31,8 @@ import yaml
 import torch
 
 # original modules
-from ..result.result import Result
-from ..utils.const import *
+from result.result import Result
+from utils.const import *
 
 
 class Trainer:
@@ -54,7 +56,7 @@ class Trainer:
                        STATUS_DONE: "done",
                        STATUS_FAILED: "failed"}
 
-        status = status_dict[self.status]
+        status = status_dict[self.status].results[0]
         self.lock.release()
         return status
 
@@ -75,55 +77,11 @@ class Trainer:
 
     def get_result(self):
         self.lock.acquire()
-        name = self.experiment_name
+        result = self.result
         self.lock.release()
 
-        return name
+        return result
 
     def dump_to_file(self, path):
         pass
-
-
-class TrainLog:
-    def __init__(self, hogoe):
-        self.parent_name = parent_name
-        self.trial_id = trial_id
-
-        self.experiment_name = f"{self.parent_name}_trial_{self.trial_id}"
-
-        self.hp = hp
-
-        self.status = STATUS_PENDING
-
-    def get_status(self):
-        status_dict = {STATUS_PENDING: "pending",
-                       STATUS_RUNNING: "running",
-                       STATUS_DONE: "done",
-                       STATUS_FAILED: "failed"}
-
-        return status_dict[self.status]
-
-
-class EvalIndex:
-    def __init__(self, value_type, value, phase=PHASE_TRAIN):
-        self.value_type = value_type
-        self.value = value
-        self.phase = phase
-
-        self.status = STATUS_PENDING
-
-    def get_status(self):
-        status_dict = {STATUS_PENDING: "pending",
-                       STATUS_RUNNING: "running",
-                       STATUS_DONE: "done",
-                       STATUS_FAILED: "failed"}
-
-        return status_dict[self.status]
-
-    def check_value(self):
-        max_value = get_max(self.value_type)
-        min_value = get_min(self.value_type)
-
-    def __str__(self):
-        return str(self.value)
 

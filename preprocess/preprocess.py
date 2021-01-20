@@ -14,6 +14,8 @@ Todo:
 """
 
 # standard modules
+import sys
+sys.path.append('../')
 import os
 import itertools
 
@@ -32,7 +34,7 @@ import torch.distributions
 import torchvision
 
 # original modules
-from ..utils.const import *
+from utils.const import *
 
 
 class RandomGammaTransform(nn.module):
