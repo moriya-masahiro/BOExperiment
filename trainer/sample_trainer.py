@@ -42,19 +42,30 @@ from trainer.trainer import Trainer
 
 
 status_dict = {STATUS_PENDING: "pending",
-                       STATUS_RUNNING: "running",
-                       STATUS_DONE: "done",
-                       STATUS_FAILED: "failed"}
+               STATUS_RUNNING: "running",
+               STATUS_DONE: "done",
+               STATUS_FAILED: "failed"}
 
 
 class Hartmann6Trainer(Trainer):
-    def __init__(self, parent_name, trial_id, hp, device=None):
+
+    required_params = ("train.x0",
+                       "train.x1",
+                       "train.x2",
+                       "train.x3",
+                       "train.x4",
+                       "train.x5")
+
+    def __init__(self, root, parent_name, trial_id, hp, embedding_id=None, device=None, logger=None):
+        self.root = root
         self.status = STATUS_PENDING
         self.parent_name = parent_name
         self.trial_id = trial_id
         self.device = device
+        self.embedding_id = embedding_id
+        self.logger = logger
 
-        self.experiment_name = f"{self.parent_name}_trial_{self.trial_id}"
+        self.trial_name = f"{self.parent_name}_trial_{self.trial_id}"
 
         self.hp = hp
 
@@ -62,11 +73,10 @@ class Hartmann6Trainer(Trainer):
 
         self.hartmann = Hartmann(negate=True)
 
-        self.result = Result(self.hp, self.experiment_name, self.parent_name, self.trial_id)
+        self.result = Result(self.hp, self.trial_name, self.parent_name, self.trial_id)
 
     def get_status(self):
         self.lock.acquire()
-
 
         # status = status_dict[self.status]
         self.lock.release()
@@ -78,23 +88,22 @@ class Hartmann6Trainer(Trainer):
             raise Exception("nanka kaku!")
 
         self.lock.acquire()
-        print(f"set status: {status_dict[status]}")
         self.status = status
         self.lock.release()
 
     def get_name(self):
         self.lock.acquire()
-        name = self.experiment_name
+        name = self.trial_name
         self.lock.release()
 
         return name
 
     def get_result(self):
         self.lock.acquire()
-        name = self.experiment_name
+        result = self.result
         self.lock.release()
 
-        return name
+        return result
 
     def dump_to_file(self, path):
         pass
@@ -114,12 +123,12 @@ class Hartmann6Trainer(Trainer):
 
         output = self.hartmann(x) * (self.__outcome_constraint() <= 0).type_as(x)
 
-        print(f"the output of hartmann is {output}")
-
         # set results
-        self.result.set_result(INDEX_TYPE_NORMAL_CONTINUOUS, "hartmann_output", output.sum().item(), 0, PHASE_TEST)
+        self.result.set_result(INDEX_TYPE_NORMAL_CONTINUOUS, "hartmann_output", output.sum().item(), 0, 0, PHASE_TEST)
 
         # set status
+        if self.logger is not None:
+            self.logger.info(f"The trial (id={self.trial_id}) has finished.")
         self.set_status(STATUS_DONE)
 
     def __outcome_constraint(self):

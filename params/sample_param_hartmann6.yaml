@@ -9,8 +9,11 @@ experiment:
     - 1
     - 2
     - 3
-  num_initial_iterations: 8
-  num_iterations: 64
+  num_initial_iterations: 64
+  num_iterations: 256
+  acquisition_function_type: ucb
+  root_dir: /Users/moriyamasahiro/temp/
+  bo_type: rembo
 
 train:
   x0:
@@ -49,8 +52,16 @@ train:
     max_value: 1
     min_value: 0
 
-  dummy_1:
+  dummy_2:
     is_variable: True
-    type: bool
+    type: float
+    scale: log
+    max_value: 1000
+    min_value: 1
 
-
+  dummy_3:
+    is_variable: True
+    type: float
+    scale: log
+    max_value: 1000
+    min_value: 1

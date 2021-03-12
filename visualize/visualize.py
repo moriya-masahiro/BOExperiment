@@ -244,7 +244,7 @@ class HP:
         else:
             # check all child hp
             for child_hp in self.child_hp_list:
-                if child_hp.is_variable():
+                if child_hp._is_variable():
                     self.is_variable = True
                     return True
             else:

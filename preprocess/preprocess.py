@@ -36,6 +36,8 @@ import torchvision
 # original modules
 from utils.const import *
 
+import albumentations as albu
+
 
 class RandomGammaTransform(nn.module):
     def __init__(self, dist_type, scale=None, max_value=None, min_value=None):
@@ -139,7 +141,10 @@ class MyToTensor(nn.Module):
         pass
 
 
+def get_preprocess(hp):
+    transform_list = []
 
+    hp.get_const("train.preprocess.")
 
 
 

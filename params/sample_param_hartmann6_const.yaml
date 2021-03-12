@@ -1,0 +1,24 @@
+hogehoge1: fugafuga1
+hogehoge2: fugafuga2
+hogehoge3: fugafuga3
+
+experiment:
+  experiment_name: hartmann6_test
+  devices:
+    - "cuda:0"
+    - "cuda:1"
+    - "cuda:2"
+    - "cuda:3"
+  num_initial_iterations: 4
+  num_iterations: 64
+
+train:
+  x0: 0.5
+  x1: 0.5
+  x2: 0.5
+  x3: 0.5
+  x4: 0.5
+  x5: 0.5
+
+
+

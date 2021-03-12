@@ -17,6 +17,8 @@ sphinx-rtd-theme = ">=0.5.0"
 botorch = "*"
 transitions = "*"
 python-dispatch = "*"
+albumentations = "*"
+cma = "*"
 
 [requires]
 python_version = ">=3.6"
